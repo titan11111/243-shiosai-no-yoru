@@ -69,3 +69,32 @@ BAD1の締めを「――二人だけの約束を、確かめればよかった�
 `verify-dash.cjs` が `assert.equal(s.li, 2)` と書いてあったため、
 シナリオの行数が変わっただけで落ちた。`S[id].lines.length-1` から引くよう修正。
 シナリオを触る前提のテストは、シナリオを参照して書く。
+
+---
+
+## 2026-09-19 公開時の追記
+
+**6. 背景canvasはDOM先頭に置かない（harnessタップFAILの構造要因）**
+`game-harness.mjs:188` は `button, [role="button"], canvas` の **DOM順1番目**をタップする。
+この作品の1番目は `<canvas id="cv">`（`position:fixed;inset:0`）だが、その上を `#title` が全面で覆うため
+Playwright のヒットターゲット判定が通らず `タップ FAIL（Timeout 3000ms）` になっていた。
+
+裏取り: Chromium 390×844・hasTouch・dsf3 で `document.elementFromPoint(canvas中心)` → **`BUTTON#startBtn`**。
+`#startBtn` を `.tap()` すると `#title` が hidden・`#stage` が表示＝**タッチ自体は元から通っていた**。
+幕が消えた後も `#stage`（`position:fixed;inset:0`）が覆うため、canvas は設計上いつまでもタップ対象にならない。
+
+直し方（241-shichirin-sanma の前例と同じ2手）:
+1. 重なり順を DOM順ではなく **z-index で明示**（canvas:0 / #stage:2 / #dash・#hint:3 / #title:5）
+2. `<canvas id="cv">` を **body末尾へ移動**（DOM順1番目が「実際に見えている開始ボタン」になる）
+
+結果 `タップ PASS`、見た目は1ピクセルも変わらない（雨・灯台の背景描画を実測確認: `verified-title.png`）。
+
+**7. 404の原因は実装ではなく「pushしていないこと」だった**
+242・244〜247 は各自リポジトリで Pages 200 だったのに、243だけ 404。
+調べると **自分のリポジトリが存在せず、親リポジトリでも未追跡（`??`）** ＝どこにも上がっていなかった。
+ローカルで動く・harnessが通ることと、公開されていることは別物。公開確認は必ず `curl` の HTTP ステータスで取る。
+
+**8. `publish.sh` のOGP自動挿入は `</head>` が無いHTMLでは黙ってno-opになる**
+この作品の `index.html` は `shiosai-no-yoru.html` へのリダイレクトのみで `<head>` タグを持たない。
+`publish.sh` は `content.replace('</head>', ...)` で挿入するため**何も入らないまま「✓ OGPタグを追加しました」と表示する**。
+手動で `<meta http-equiv="refresh">` の前へ挿入した。リダイレクト型のindexを使うときは公開後にOGPの実在をgrepで確認する。
