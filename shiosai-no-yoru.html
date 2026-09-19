@@ -1,0 +1,281 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>潮騒の夜 — 十秒の闇、五つの結末</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Shippori+Mincho+B1:wght@500;800&display=swap" rel="stylesheet">
+<style>
+:root{
+  --sea:#06161c; --storm:#23363d; --lamp:#e6ad48; --paper:#ebe5d6; --dim:#8fa3a6; --blood:#9b2f2a;
+  --font:"Shippori Mincho B1","Hiragino Mincho ProN","Yu Mincho","Noto Serif JP",serif;
+}
+@media (prefers-color-scheme: dark){ :root:not([data-theme="light"]){ --sea:#06161c; --paper:#ebe5d6; } }
+:root[data-theme="dark"]{ --sea:#06161c; --paper:#ebe5d6; }
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{touch-action:manipulation;height:100%;background:var(--sea);color:var(--paper);font-family:var(--font);overflow:hidden}
+canvas{position:fixed;inset:0;width:100%;height:100%;display:block;z-index:0}
+#stage{position:fixed;inset:0;z-index:2;overflow-y:auto;display:flex;flex-direction:column;padding:max(18px,env(safe-area-inset-top)) 22px max(18px,env(safe-area-inset-bottom));cursor:pointer;user-select:none}
+#bar{flex-wrap:wrap;display:flex;justify-content:space-between;align-items:center;font-size:.8rem;color:var(--dim);gap:12px}
+#bar button{font:inherit;color:var(--dim);background:none;border:1px solid rgba(143,163,166,.35);padding:5px 10px;border-radius:2px;cursor:pointer}
+#bar button:focus-visible,.choice:focus-visible{outline:2px solid var(--lamp);outline-offset:2px}
+#bar button.on{color:var(--lamp);border-color:rgba(230,173,72,.7)}
+#chapter{letter-spacing:.2em}
+#text{flex-shrink:0;margin-top:auto;margin-bottom:auto;max-width:34em;align-self:center;width:100%;font-size:clamp(1.02rem,3.9vw,1.3rem);line-height:2.05;font-weight:500;text-shadow:0 1px 6px rgba(0,0,0,.9);white-space:pre-wrap;min-height:46vh;padding-top:6vh}
+#text .speaker{color:var(--lamp)}
+#choices{flex-shrink:0;display:flex;flex-direction:column;gap:10px;max-width:34em;width:100%;align-self:center;margin-bottom:6vh}
+.choice{font:inherit;font-size:clamp(1rem,3.8vw,1.15rem);text-align:left;color:var(--paper);background:rgba(6,22,28,.72);border:1px solid rgba(230,173,72,.45);border-left:4px solid var(--lamp);padding:13px 16px;cursor:pointer}
+.choice:hover{background:rgba(230,173,72,.14)}
+#dash{position:fixed;z-index:3;left:22px;bottom:max(16px,env(safe-area-inset-bottom));color:var(--lamp);font-size:.8rem;letter-spacing:.15em;opacity:0;transition:opacity .15s;pointer-events:none}
+#dash.on{opacity:1}
+#hint{position:fixed;z-index:3;right:22px;bottom:max(16px,env(safe-area-inset-bottom));color:var(--lamp);font-size:1.1rem;opacity:0;transition:opacity .3s}
+#hint.on{opacity:1;animation:blink 1.1s steps(2) infinite}
+@keyframes blink{50%{opacity:.2}}
+#title{position:fixed;inset:0;z-index:5;overflow-y:auto;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:16px;text-align:center;padding:24px}
+#title h1{font-weight:800;font-size:clamp(2.5rem,10vw,5rem);writing-mode:vertical-rl;letter-spacing:.25em;line-height:1;text-shadow:0 0 30px rgba(0,0,0,.8)}
+#title p{color:var(--dim);font-size:.9rem;line-height:1.9}
+#title button{font:inherit;font-size:1.1rem;color:var(--sea);background:var(--lamp);border:0;padding:12px 34px;cursor:pointer}
+#endcount{white-space:pre-line;font-size:.75rem!important;color:var(--lamp)!important}
+.hidden{display:none!important}
+@media (prefers-reduced-motion: reduce){#hint.on{animation:none}}
+</style>
+</head>
+<body>
+
+<div id="title">
+  <h1>潮騒の夜</h1>
+  <p>台風で船が止まった離島の宿。<br>灯台の光がひと巡りするあいだに、誰かが消える。</p>
+  <button id="startBtn">はじめる</button>
+  <p id="endcount"></p>
+  <p>バッドエンド4つ・真エンド1つ<br>タップ／Enterで読み進める<br>長押し・Shiftでダッシュ（早送り）</p>
+</div>
+
+<div id="stage" class="hidden">
+  <div id="bar">
+    <span id="chapter"></span>
+    <span><button id="dashBtn" aria-pressed="false" aria-label="ダッシュ（早送り）">ダッシュ</button> <button id="soundBtn">音：オフ</button> <button id="restartBtn">タイトルへ</button></span>
+  </div>
+  <div id="text"></div>
+  <div id="choices"></div>
+</div>
+<div id="dash">≫ ダッシュ</div>
+<div id="hint">▼</div>
+<canvas id="cv"></canvas>
+
+<script src="story.js"></script>
+<script>
+// ===== シナリオ =====
+// bg: sea / inn / hall / annex / light / dawn / red
+const S=STORY.scenes;
+const ALL_ENDS=STORY.endings;
+
+// ===== 描画 =====
+const cv=document.getElementById("cv"),cx=cv.getContext("2d");
+let W,H,DPR,bg="sea",flash=0;
+const reduce=matchMedia("(prefers-reduced-motion: reduce)").matches;
+const drops=Array.from({length:160},()=>({x:Math.random(),y:Math.random(),l:.02+Math.random()*.04,s:.6+Math.random()*.8}));
+function resize(){DPR=Math.min(devicePixelRatio||1,2);W=innerWidth;H=innerHeight;cv.width=W*DPR;cv.height=H*DPR;cx.setTransform(DPR,0,0,DPR,0,0)}
+addEventListener("resize",resize);resize();
+
+const PAL={
+ sea:["#0a2029","#06161c"], inn:["#141d22","#07100f"], hall:["#120f0c","#050605"],
+ annex:["#17130f","#050404"], light:["#0c1c24","#040a0d"], dawn:["#3c4a55","#b89a78"], red:["#2a0907","#050101"]
+};
+function draw(t){
+  const [a,b]=PAL[bg];
+  const g=cx.createLinearGradient(0,0,0,H);g.addColorStop(0,a);g.addColorStop(1,b);
+  cx.fillStyle=g;cx.fillRect(0,0,W,H);
+  const hz=H*.62;
+  // 海
+  if(bg!=="hall"&&bg!=="annex"){
+    cx.fillStyle=bg==="dawn"?"rgba(40,55,65,.8)":"rgba(3,12,16,.9)";
+    cx.beginPath();cx.moveTo(0,hz);
+    for(let x=0;x<=W;x+=20)cx.lineTo(x,hz+Math.sin(x*.02+t*.0015)*4);
+    cx.lineTo(W,H);cx.lineTo(0,H);cx.fill();
+  }
+  // 灯台の位置
+  const lx=W*.8,ly=hz-H*.22;
+  if(bg==="sea"||bg==="light"||bg==="inn"){
+    cx.fillStyle="#020708";
+    cx.beginPath();cx.moveTo(W*.62,hz);cx.lineTo(W*.72,hz-H*.08);cx.lineTo(W,hz-H*.1);cx.lineTo(W,hz);cx.fill();
+    cx.fillStyle="#0d1719";cx.fillRect(lx-7,ly,14,H*.14);
+    cx.fillStyle="#e6ad48";cx.fillRect(lx-9,ly-10,18,10);
+  }
+  if(bg==="inn"){ // 宿のシルエット
+    cx.fillStyle="#020606";
+    cx.fillRect(W*.1,hz-H*.12,W*.38,H*.12);
+    cx.beginPath();cx.moveTo(W*.07,hz-H*.12);cx.lineTo(W*.29,hz-H*.2);cx.lineTo(W*.51,hz-H*.12);cx.fill();
+    cx.fillStyle="rgba(230,173,72,.55)";
+    for(let i=0;i<4;i++)cx.fillRect(W*.14+i*W*.08,hz-H*.08,W*.03,H*.03);
+  }
+  if(bg==="hall"||bg==="annex"){ // 障子
+    const cols=6,rows=4,pw=W/cols,ph=H*.7/rows;
+    cx.strokeStyle="rgba(235,229,214,.07)";cx.lineWidth=2;
+    for(let i=0;i<=cols;i++){cx.beginPath();cx.moveTo(i*pw,0);cx.lineTo(i*pw,H*.7);cx.stroke()}
+    for(let j=0;j<=rows;j++){cx.beginPath();cx.moveTo(0,j*ph);cx.lineTo(W,j*ph);cx.stroke()}
+  }
+  // 灯台の光（十秒で一周）
+  if(bg!=="dawn"){
+    const ang=(t/10000)*Math.PI*2;
+    const facing=Math.cos(ang); // 手前を向くほど明るく
+    if(bg==="sea"||bg==="light"||bg==="inn"){
+      cx.save();cx.translate(lx,ly-5);cx.rotate(Math.PI+Math.sin(ang)*1.2);
+      const bg2=cx.createLinearGradient(0,0,W,0);
+      bg2.addColorStop(0,`rgba(255,226,160,${.35*Math.max(facing,0)+.05})`);bg2.addColorStop(1,"rgba(255,226,160,0)");
+      cx.fillStyle=bg2;cx.beginPath();cx.moveTo(0,0);cx.lineTo(W*1.2,-H*.18);cx.lineTo(W*1.2,H*.18);cx.fill();cx.restore();
+    }else{
+      cx.fillStyle=`rgba(255,236,190,${Math.max(facing,0)**6*.16})`;cx.fillRect(0,0,W,H);
+    }
+  }
+  // 雨
+  if(bg!=="dawn"&&!reduce){
+    cx.strokeStyle=bg==="red"?"rgba(180,80,70,.25)":"rgba(170,200,205,.22)";cx.lineWidth=1;cx.beginPath();
+    for(const d of drops){
+      d.y+=d.s*.012;d.x-=d.s*.003;if(d.y>1){d.y=-.05;d.x=Math.random()*1.1}
+      const x=d.x*W,y=d.y*H;cx.moveTo(x,y);cx.lineTo(x-d.l*H*.25,y+d.l*H);
+    }cx.stroke();
+  }
+  // 雷
+  if(bg!=="dawn"&&!reduce&&Math.random()<.0012){flash=1;rumble()}
+  if(flash>0){cx.fillStyle=`rgba(220,235,240,${flash*.35})`;cx.fillRect(0,0,W,H);flash*=.86;if(flash<.02)flash=0}
+  // 文字の読みやすさ用ヴェール
+  cx.fillStyle="rgba(0,0,0,.38)";cx.fillRect(0,0,W,H);
+  requestAnimationFrame(draw);
+}
+requestAnimationFrame(draw);
+
+// ===== 音（Web Audio） =====
+let ac=null,rainGain=null,soundOn=false;
+function initAudio(){
+  if(ac)return;
+  ac=new (window.AudioContext||window.webkitAudioContext)();
+  const len=ac.sampleRate*2,buf=ac.createBuffer(1,len,ac.sampleRate),d=buf.getChannelData(0);
+  for(let i=0;i<len;i++)d[i]=Math.random()*2-1;
+  const src=ac.createBufferSource();src.buffer=buf;src.loop=true;
+  const f=ac.createBiquadFilter();f.type="lowpass";f.frequency.value=1200;
+  rainGain=ac.createGain();rainGain.gain.value=0;
+  src.connect(f).connect(rainGain).connect(ac.destination);src.start();
+}
+function rumble(){
+  if(!soundOn||!ac)return;
+  const o=ac.createOscillator(),g=ac.createGain();o.type="sawtooth";o.frequency.value=38;
+  g.gain.setValueAtTime(.22,ac.currentTime);g.gain.exponentialRampToValueAtTime(.001,ac.currentTime+2.2);
+  const f=ac.createBiquadFilter();f.type="lowpass";f.frequency.value=120;
+  o.connect(f).connect(g).connect(ac.destination);o.start();o.stop(ac.currentTime+2.3);
+}
+function tick(){
+  if(!soundOn||!ac)return;
+  const o=ac.createOscillator(),g=ac.createGain();o.frequency.value=900;
+  g.gain.setValueAtTime(.015,ac.currentTime);g.gain.exponentialRampToValueAtTime(.0001,ac.currentTime+.03);
+  o.connect(g).connect(ac.destination);o.start();o.stop(ac.currentTime+.04);
+}
+const soundBtn=document.getElementById("soundBtn");
+soundBtn.onclick=e=>{
+  e.stopPropagation();initAudio();soundOn=!soundOn;ac.resume();
+  rainGain.gain.value=soundOn&&S[cur].bg!=="dawn"?.05:0;
+  soundBtn.textContent="音："+(soundOn?"オン":"オフ");
+};
+
+// ===== 進行 =====
+const $text=document.getElementById("text"),$ch=document.getElementById("chapter"),
+      $choices=document.getElementById("choices"),$hint=document.getElementById("hint"),
+      $stage=document.getElementById("stage"),$title=document.getElementById("title"),
+      $dashBtn=document.getElementById("dashBtn"),$dash=document.getElementById("dash");
+let cur="start",li=0,typing=false,timer=null,full="";
+
+function loadEnds(){try{const a=JSON.parse(localStorage.getItem("shiosai_ends_v2")||"[]");return Array.isArray(a)?[...new Set(a.filter(n=>ALL_ENDS.includes(n)))]:[]}catch(e){return[]}}
+function saveEnd(n){try{const a=loadEnds();if(!a.includes(n)){a.push(n);localStorage.setItem("shiosai_ends_v2",JSON.stringify(a))}}catch(e){}}
+function showCount(){const found=loadEnds();document.getElementById("endcount").textContent=`見つけたエンディング ${found.length}／${ALL_ENDS.length}\n`+ALL_ENDS.map((n,i)=>found.includes(n)?n:`${i===4?"TRUE END":"BAD END "+(i+1)}　？？？`).join("\n")}
+showCount();
+
+function go(id){
+  clearInterval(timer);$stage.scrollTop=0;cur=id;li=0;const s=S[id];bg=s.bg;$ch.textContent=s.ch;$choices.innerHTML="";
+  if(rainGain)rainGain.gain.value=soundOn&&bg!=="dawn"?.05:0;
+  if(bg==="red")flash=1;
+  show();
+}
+function fmt(str){ // 「」の台詞を灯色に
+  return str.replace(/[&<>]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;"}[c])).replace(/「([^」]*)」/g,'<span class="speaker">「$1」</span>');
+}
+function show(){
+  const s=S[cur];full=s.lines[li];$hint.classList.remove("on");
+  let i=0;typing=true;clearInterval(timer);
+  if(reduce||dashing()){$text.innerHTML=fmt(full);return done()}
+  timer=setInterval(()=>{
+    i++;$text.innerHTML=fmt(full.slice(0,i));if(i%2===0)tick();
+    if(i>=full.length)done();
+  },42);
+}
+function done(){
+  clearInterval(timer);typing=false;$choices.replaceChildren();$text.innerHTML=fmt(full);
+  const s=S[cur];
+  if(li<s.lines.length-1){$hint.classList.add("on");return}
+  if(s.choices){
+    s.choices.forEach(c=>{const b=document.createElement("button");b.className="choice";b.textContent=c.t;
+      b.onclick=e=>{e.stopPropagation();go(c.go)};$choices.appendChild(b)});
+    $choices.firstChild.focus({preventScroll:true});
+  }else if(s.next){$hint.classList.add("on")}
+  else if(s.end){
+    saveEnd(s.end);
+    const b=document.createElement("button");b.className="choice";
+    b.textContent=`${s.end}　（${loadEnds().length}／${ALL_ENDS.length}）　タイトルへ戻る`;
+    b.onclick=e=>{e.stopPropagation();toTitle()};$choices.appendChild(b);
+  }
+}
+// ===== ダッシュ（早送り） =====
+// hold: 長押し／Shift・Ctrl押しっぱなし　lock: パネルのトグル
+let hold=false,lock=false,dashTimer=null;
+function dashing(){return hold||lock}
+function paintDash(){const on=dashing();$dash.classList.toggle("on",on);$dashBtn.classList.toggle("on",lock);
+  $dashBtn.setAttribute("aria-pressed",String(lock));$dashBtn.textContent=lock?"ダッシュ中":"ダッシュ";
+  if(on)$hint.classList.remove("on")}
+function dashStop(){hold=false;lock=false;clearTimeout(dashTimer);paintDash()}
+function pump(){ // ダッシュが続くかぎり自動で読み進める
+  clearTimeout(dashTimer);paintDash();
+  if(!dashing()||$stage.classList.contains("hidden"))return;
+  if(typing)done();
+  const s=S[cur];
+  if(li>=s.lines.length-1&&!s.next){dashStop();return} // 選択肢・エンディングでは必ず止まる
+  dashTimer=setTimeout(()=>{advance();pump()},90);
+}
+function sync(){if(dashing())pump();else{clearTimeout(dashTimer);paintDash()}}
+function setHold(v){if(hold===v)return;hold=v;sync()}
+$dashBtn.onclick=e=>{e.stopPropagation();lock=!lock;sync()};
+
+function advance(){
+  if($stage.classList.contains("hidden"))return;
+  if(typing)return done();
+  const s=S[cur];
+  if(li<s.lines.length-1){li++;show()}
+  else if(s.next)go(s.next);
+}
+function toTitle(){clearInterval(timer);dashStop();typing=false;if(rainGain)rainGain.gain.value=0;$stage.classList.add("hidden");$hint.classList.remove("on");$title.classList.remove("hidden");bg="sea";showCount()}
+let pressTimer=null,didHold=false;
+$stage.addEventListener("pointerdown",e=>{
+  if(e.target.closest("button"))return;
+  try{$stage.setPointerCapture(e.pointerId)}catch(_){}
+  didHold=false;clearTimeout(pressTimer);
+  pressTimer=setTimeout(()=>{didHold=true;setHold(true)},250);
+});
+function release(e){clearTimeout(pressTimer);setHold(false);
+  try{$stage.releasePointerCapture(e.pointerId)}catch(_){}}
+$stage.addEventListener("pointerup",e=>{
+  if(e.target.closest("button"))return;
+  const held=didHold;release(e);if(!held)advance();
+});
+$stage.addEventListener("pointercancel",release);
+addEventListener("blur",()=>{clearTimeout(pressTimer);setHold(false)});
+addEventListener("keydown",e=>{
+  if(e.key==="Shift"||e.key==="Control"){setHold(true);return}
+  if((e.key==="Enter"||e.key===" ")&&!e.target.closest("button")){e.preventDefault();
+    if(e.repeat)setHold(true);else advance()}
+});
+addEventListener("keyup",e=>{if(e.key==="Shift"||e.key==="Control"||e.key==="Enter"||e.key===" ")setHold(false)});
+document.getElementById("restartBtn").onclick=e=>{e.stopPropagation();toTitle()};
+document.getElementById("startBtn").onclick=()=>{dashStop();$title.classList.add("hidden");$stage.classList.remove("hidden");go("start")};
+paintDash();
+</script>
+</body>
+</html>
